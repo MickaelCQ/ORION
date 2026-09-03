@@ -7,7 +7,7 @@ from jinja2 import Template
 from config import DB_PATH, RUNS_ROOT
 
 # --- CONFIGURATION CHU DE NÎMES ---
-OUTPUT_HTML =  "/mnt/ngs_ns2000/VH02532/ORION_Dashboard.html"
+OUTPUT_HTML =  "/mnt/ngs_ns2000/MONITORING_ORION/ORION_Dashboard.html"
 
 def get_stats():
     """Récupère et prépare les données."""
@@ -114,7 +114,7 @@ HTML_TEMPLATE = """
         <div id="qualite" class="tab-content">
             <div class="plot-container" id="chart_q30"></div>
             <div class="bio-note">
-                <strong>🔬 Intérêt Biologique :</strong> Le score Q30 mesure la probabilité d'une erreur d'appel de base (1/1000). Une dérive indique souvent une perte de focalisation optique ou un déphasage chimique durant le séquençage.
+                <strong> Intérêt Biologique :</strong> Le score Q30 mesure la probabilité d'une erreur d'appel de base (1/1000). Une dérive indique souvent une perte de focalisation optique ou un déphasage chimique durant le séquençage.
             </div>
         </div>
         
@@ -122,7 +122,7 @@ HTML_TEMPLATE = """
         <div id="index" class="tab-content">
             <div class="plot-container" id="chart_undet"></div>
             <div class="bio-note">
-                <strong>⚠️ Alerte Indéterminés :</strong> Un taux de <i>Undetermined Reads</i> supérieur à 10% nécessite une investigation : saturation d'index, problème de librairie, ou Index Hopping sur puces structurées.
+                <strong>⚠️lerte Indéterminés :</strong> Un taux de <i>Undetermined Reads</i> supérieur à 10% nécessite une investigation : saturation d'index, problème de librairie, ou Index Hopping sur puces structurées.
             </div>
         </div>
     </div>
@@ -154,6 +154,10 @@ HTML_TEMPLATE = """
 # --- GÉNÉRATION DU RAPPORT ---
 def build():
     df = get_stats()
+
+    if df.empty:
+            print("⚠️La base de données est vide. Aucun rapport généré.")
+            return
     from datetime import datetime
     
     ctx = {
@@ -166,7 +170,7 @@ def build():
     
     with open(OUTPUT_HTML, "w", encoding="utf-8") as f:
         f.write(Template(HTML_TEMPLATE).render(ctx))
-    print(f"✅ Dashboard international généré sur : {OUTPUT_HTML}")
+    print(f"Dashboard international généré sur : {OUTPUT_HTML}")
 
 if __name__ == "__main__":
     build()
