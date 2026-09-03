@@ -29,6 +29,7 @@ def init_db():
             phasing_r1 REAL,                -- Taux de phasing (Read 1)
             prephasing_r1 REAL,             -- Taux de pre-phasing (Read 1)
             status TEXT,                    -- État du run (ex: Completed, Failed)
+            pct_undertermined REAL,
             date_entry TIMESTAMP DEFAULT CURRENT_TIMESTAMP -- Date d'enregistrement en base
         )
     ''')
