@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+*.class
+venv/
+.env
+
+# Données et Logs (Tracé d'audit et DB restent sur le serveur local)
+data/*.db
+logs/*.log
+*.csv
+
+# OS
+.DS_Store
