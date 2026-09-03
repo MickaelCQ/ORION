@@ -1,72 +1,96 @@
 import os
 import sqlite3
+import sys
 from config import RUNS_ROOT, DB_PATH
 from core.database import init_db
 from modules.parser_interop import parse_run_metrics
 
 def run_scanner():
     """
-    Scanne le répertoire du séquenceur, extrait les métriques des nouveaux 
-    runs et les enregistre dans la base historique.
+    Moteur de détection des runs - CHU de Nîmes.
     """
-    # Initialisation de la base (création de la table si absente au premier lancement)
-    init_db()
+    print("--- DÉMARRAGE DU SCANNER ORION ---")
     
+    # Étape 1 : Initialisation Base de données
+    try:
+        init_db()
+        print(f"✅ Base de données vérifiée : {DB_PATH}")
+    except Exception as e:
+        print(f"❌ ERREUR INITIALISATION DB : {e}")
+        return
+
+    # Étape 2 : Connexion
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    # Récupération des IDs déjà en base pour éviter de parser deux fois le même run
+    # Étape 3 : Liste des runs déjà connus
     cursor.execute("SELECT run_id FROM runs")
     existing_runs = {row[0] for row in cursor.fetchall()}
+    print(f"📊 Runs déjà en base : {len(existing_runs)}")
     
-    print(f"🔎 [SCAN] Analyse du répertoire : {RUNS_ROOT}")
+    # Étape 4 : Scan du répertoire NextSeq 2000
+    print(f"🔎 Analyse du répertoire : {RUNS_ROOT}")
     
-    # Parcours des dossiers de runs sur le disque NFS
-    for run_name in os.listdir(RUNS_ROOT):
+    if not os.path.exists(RUNS_ROOT):
+        print(f"❌ ERREUR : Le dossier {RUNS_ROOT} est inaccessible ou n'existe pas.")
+        return
+
+    all_files = os.listdir(RUNS_ROOT)
+    print(f"📁 Éléments trouvés dans le répertoire : {len(all_files)}")
+
+    for run_name in all_files:
         run_path = os.path.join(RUNS_ROOT, run_name)
         
-        # Filtre : On ne traite que les dossiers non encore importés
-        if os.path.isdir(run_path) and run_name not in existing_runs:
-            # La présence de 'RTAComplete.txt' indique que le séquenceur a fini d'écrire
-            if os.path.exists(os.path.join(run_path, "RTAComplete.txt")):
-                print(f"[NEW RUN] Nouveau run détecté : {run_name}")
+        # Filtre de sécurité
+        if not os.path.isdir(run_path):
+            continue
+            
+        print(f"  📂 Traitement de : {run_name}...", end=" ")
+
+        if run_name in existing_runs:
+            print("SKIP (Déjà en base)")
+            continue
+
+        # Vérification du fichier de fin de run
+        if os.path.exists(os.path.join(run_path, "RTAComplete.txt")):
+            # Extraction de la date (YYMMDD)
+            date_raw = run_name.split('_')[0]
+            formatted_date = f"20{date_raw[0:2]}-{date_raw[2:4]}-{date_raw[4:6]}"
+            
+            try:
+                # Appel du parser InterOp (Deep Probe)
+                metrics = parse_run_metrics(run_path)
                 
-                # Extraction de la date depuis le nom Illumina standard (YYMMDD_...)
-                # Exemple : '240515_...' devient '2024-05-15'
-                try:
-                    date_raw = run_name.split('_')[0]
-                    formatted_date = f"20{date_raw[0:2]}-{date_raw[2:4]}-{date_raw[4:6]}"
-                except:
-                    formatted_date = "Unknown"
+                cursor.execute('''
+                    INSERT INTO runs (
+                        run_id, date_run, yield_gb, pct_q30_total, pct_q30_r1, 
+                        pct_q30_r2, cluster_density, pct_pf, 
+                        phasing_r1, prephasing_r1, status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    run_id := run_name, 
+                    formatted_date, 
+                    metrics['yield_gb'], 
+                    metrics['pct_q30_total'], 
+                    metrics['pct_q30_r1'], 
+                    metrics['pct_q30_r2'], 
+                    metrics['cluster_density'], 
+                    metrics['pct_pf'], 
+                    metrics['phasing_r1'], 
+                    metrics['prephasing_r1'], 
+                    metrics['status']
+                ))
                 
-                try:
-                    # Extraction des métriques via le module InterOp
-                    metrics = parse_run_metrics(run_path)
-                    
-                    # Insertion dans la base de données historique
-                    cursor.execute('''
-                        INSERT INTO runs (
-                            run_id, date_run, yield_gb, pct_q30_total, pct_q30_r1, 
-                            pct_q30_r2, cluster_density, pct_pf, 
-                            phasing_r1, prephasing_r1, status
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (
-                        run_name, formatted_date, metrics['yield_gb'], 
-                        metrics['pct_q30_total'], metrics['pct_q30_r1'], 
-                        metrics['pct_q30_r2'], metrics['cluster_density'], 
-                        metrics['pct_pf'], metrics['phasing_r1'], 
-                        metrics['prephasing_r1'], metrics['status']
-                    ))
-                    
-                    conn.commit()
-                    print(f"[SUCCESS] {run_name} ajouté à l'historique.")
-                
-                except Exception as e:
-                    # En cas d'erreur de parsing, on log et on continue pour ne pas bloquer le scan
-                    print(f"❌ [ERROR] Échec du traitement pour {run_name} : {e}")
+                conn.commit()
+                print("✅ IMPORTÉ")
+            except Exception as e:
+                print(f"❌ ERREUR PARSING : {e}")
+        else:
+            print("IGNORE (RTAComplete.txt absent)")
 
     conn.close()
-    print("[SCAN FINISHED] Fin de l'analyse.")
+    print("--- FIN DU SCAN ---")
 
+# CE BLOC EST INDISPENSABLE POUR QUE LE SCRIPT SE LANCE
 if __name__ == "__main__":
     run_scanner()
